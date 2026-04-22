@@ -2,6 +2,9 @@ using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Sirenix.OdinInspector;
+using UnityEngine.UI;
+using UnityEngine.SceneManagement;
+using System.Collections;
 
 public class ThirdPersonController : MonoBehaviour
 {
@@ -14,6 +17,7 @@ public class ThirdPersonController : MonoBehaviour
     [FoldoutGroup("References")]
     public Animator animator;
 
+    private bool isDead = false;
 
     [FoldoutGroup("Controller")]
     public float moveSpeed = 5f;
@@ -39,7 +43,7 @@ public class ThirdPersonController : MonoBehaviour
 
     [SerializeField] private Vector2 moveInput;
 
-
+    [SerializeField] private CinemachineImpulseSource damageSource;
 
     [FoldoutGroup("WallRun")]
     public float rayLenght;
@@ -50,9 +54,23 @@ public class ThirdPersonController : MonoBehaviour
     [FoldoutGroup("WallRun")]
     public bool enableWallRun;
 
+    [Header("Vida")]
+    public int maxHealth = 100;
+    public int currentHealth;
+
+    [SerializeField] private Slider healthSlider;
+
+    [Header("Wall Jump")]
+    public float wallJumpForce = 8f;
+    public float wallJumpUpForce = 10f;
+    public float wallJumpCooldown = 1f;
+
+    private bool canWallJump = true;
+
     Vector3 normalDebug;
     Vector3 impactPoint;
     Vector3 crossResult;
+    Vector3 wallJumpVelocity;
 
     private void Awake()
     {
@@ -76,10 +94,11 @@ public class ThirdPersonController : MonoBehaviour
     }
     void Start()
     {
-
+        currentHealth = maxHealth;
     }
     void Update()
     {
+        if (isDead) return;
         EnableWallRun();
         OnMove();
         //OnSimpleMove();
@@ -92,7 +111,7 @@ public class ThirdPersonController : MonoBehaviour
         cameraForwardDir.Normalize();
 
 
-        if(moveInput != Vector2.zero)
+        if (moveInput != Vector2.zero)
         {
             Quaternion targetQuaternion = Quaternion.LookRotation(cameraForwardDir);
             //transform.rotation = targetQuaternion;
@@ -100,6 +119,7 @@ public class ThirdPersonController : MonoBehaviour
                 transform.rotation,
                 targetQuaternion,
                 rotationSpeed * Time.deltaTime);
+
 
 
         }
@@ -114,7 +134,7 @@ public class ThirdPersonController : MonoBehaviour
             moveDir = (crossResult * moveInput.y) * moveSpeed;
 
 
-            
+
         }
 
         float magnitud = Mathf.Abs(controller.velocity.magnitude);
@@ -124,7 +144,7 @@ public class ThirdPersonController : MonoBehaviour
 
         verticalVelocity += Physics.gravity.y * Time.deltaTime;
 
-        if (enableWallRun)
+        if (enableWallRun && canWallJump)
             verticalVelocity = 0;
 
         if (controller.isGrounded && verticalVelocity < 0)
@@ -132,6 +152,7 @@ public class ThirdPersonController : MonoBehaviour
 
 
         moveDir.y = verticalVelocity;
+        moveDir += wallJumpVelocity;
 
         animator.SetBool("Grounded", controller.isGrounded);
 
@@ -147,10 +168,17 @@ public class ThirdPersonController : MonoBehaviour
                 IsDashing = false;
         }
         controller.Move(moveDir * Time.deltaTime);
+        wallJumpVelocity = Vector3.Lerp(wallJumpVelocity, Vector3.zero, Time.deltaTime * 5f);
     }
 
     private void OnJump(InputAction.CallbackContext context)
     {
+        if (enableWallRun && canWallJump)
+        {
+            WallJump();
+            return;
+        }
+   
         if (!controller.isGrounded) return;
 
         animator.SetTrigger("Jump");
@@ -190,13 +218,13 @@ public class ThirdPersonController : MonoBehaviour
 
         Physics.Raycast(transform.position, -transform.right, out RaycastHit hitLeft, rayLenght);
 
-   
+
         if (hitRight.collider != null && hitRight.collider.gameObject.tag == "Wall")
         {
             hit = hitRight;
             characterCamera.Lens.Dutch = cameraTitlt;
         }
-        else if(hitLeft.collider != null && hitLeft.collider.gameObject.tag == "Wall")
+        else if (hitLeft.collider != null && hitLeft.collider.gameObject.tag == "Wall")
         {
             hit = hitLeft;
             characterCamera.Lens.Dutch = -cameraTitlt;
@@ -207,7 +235,7 @@ public class ThirdPersonController : MonoBehaviour
             enableWallRun = false;
         }
 
-        if(hit.collider != null)
+        if (hit.collider != null)
         {
             enableWallRun = true;
             Debug.Log("AleluyaR");
@@ -273,4 +301,55 @@ public class ThirdPersonController : MonoBehaviour
 
 
     }
+    public void TakeDamage(Vector3 hitDirection)
+    {
+        if (isDead) return;
+        currentHealth -= 10;
+        damageSource.GenerateImpulse(-hitDirection);
+
+        UpdateHealthUI();
+
+        if (currentHealth <= 0)
+        {
+            Die();
+
+        }
+
+
+    }
+    void UpdateHealthUI()
+    {
+        healthSlider.value = currentHealth;
+    }
+    void Die()
+    {
+        isDead = true;
+        Debug.Log("Jugador muerto");
+        controller.enabled = false;
+        animator.SetBool("Grounded", false);
+        Invoke(nameof(RestartScene), 2f);
+    }
+    void RestartScene()
+    {
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+    }
+  
+    void WallJump()
+    {
+        canWallJump = false;
+        Vector3 jumpDir = normalDebug + Vector3.up;
+        wallJumpVelocity = jumpDir.normalized * wallJumpForce;
+        verticalVelocity = wallJumpUpForce;
+        source.GenerateImpulse();
+
+        StartCoroutine(WallJumpCooldown());
+    }
+    IEnumerator WallJumpCooldown()
+    {
+        yield return new WaitForSeconds(wallJumpCooldown);
+        canWallJump = true;
+    }
 }
+
+
+
